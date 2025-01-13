@@ -1,0 +1,32 @@
+plugins {
+    id 'java'
+}
+
+group = 'org.udayaw'
+version = '1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(19)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+
+    implementation "org.apache.beam:beam-sdks-java-core:2.61.0"
+    implementation 'org.apache.beam:beam-runners-direct-java:2.61.0'
+
+    testImplementation 'junit:junit:4.13.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+
+    implementation 'org.slf4j:slf4j-api:1.7.5'
+    implementation 'org.slf4j:slf4j-log4j12:2.0.7'
+}
+
+//test {
+//    useJUnitPlatform()
+//}
