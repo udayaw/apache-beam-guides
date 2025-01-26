@@ -1,3 +1,4 @@
+import org.apache.beam.model.pipeline.v1.RunnerApi;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VarIntCoder;
@@ -57,23 +58,80 @@ public class Windowing implements Serializable {
 
     @Test
     public void testFixedWindows_AfterPane() {
-
-
+        
         //windowing only become apparent at GBK operations
 
         //GBK will have atleast 4 windows.
         fireWithTrigger(Window.<KV<String, Integer>>into(FixedWindows.of(Duration.standardDays(1)))
                 .triggering(
                         Repeatedly.forever(
-                                AfterPane.elementCountAtLeast(1)
+                                AfterPane.elementCountAtLeast(7)
                                         //.orFinally(AfterPane.elementCountAtLeast(2)) i believe, these are outdated after repeatedly has been introduced.
                         )
                 )
+                .discardingFiredPanes()
                 .withTimestampCombiner(TimestampCombiner.EARLIEST) //this denotes to what happen to each timestamp after GBK, default is END_OF_WINDOW
-                .withAllowedLateness(Duration.standardHours(0)) //late value{5} will be skipped, unless we set withAllowedLateness(Duration.standardHours(1))
-                .accumulatingFiredPanes());
+                .withAllowedLateness(Duration.standardHours(2)) //late value{5} will be skipped, unless we set withAllowedLateness(Duration.standardHours(1))
+//                .accumulatingFiredPanes()
+        );
 
     }
+
+    @Test
+    public void testFixedWindows_AfterPane_article_example() {
+        
+
+        Instant startTime = Instant.parse("2024-01-01T00:00:00Z");
+        String KEY = "key1";
+
+//        PaneInfo.Timing.ON_TIME
+
+        TestStream.Builder<KV<String, Integer>> builder =
+                TestStream.create(KvCoder.of(StringUtf8Coder.of(), VarIntCoder.of()))
+                .addElements(TimestampedValue.of(KV.of(KEY, 1), startTime))                        
+//                .advanceProcessingTime(Duration.standardMinutes(00))
+                .advanceWatermarkTo(startTime)
+                .addElements(TimestampedValue.of(KV.of(KEY, 2), startTime.plus(Duration.standardHours(1))))
+
+                        
+                        
+
+
+                 .advanceProcessingTime(Duration.standardHours(3)) //2:00
+                .advanceWatermarkTo(startTime.plus(Duration.standardHours(3)))
+                .addElements(TimestampedValue.of(KV.of(KEY, 3), startTime.plus(Duration.standardHours(3))))
+                        .advanceProcessingTime(Duration.standardHours(2)) //4:00
+                        .advanceWatermarkTo(startTime.plus(Duration.standardHours(5).plus(Duration.standardMinutes(30))))
+                        .advanceProcessingTime(Duration.standardHours(2).plus(Duration.standardMinutes(30))) //6:30                        
+                        .addElements(TimestampedValue.of(KV.of(KEY, 4), startTime.plus(Duration.standardHours(3).plus(Duration.standardMinutes(30)))))           
+                        .advanceProcessingTime(Duration.standardHours(2)) //4:00
+
+                        //.addElements(TimestampedValue.of(KV.of(KEY, 5), startTime.plus(Duration.standardHours(3).plus(Duration.standardMinutes(40)))))
+                //                .advanceWatermarkTo(startTime.plus(Duration.standardHours(4)))
+
+                
+                ;
+
+        //windowing only become apparent at GBK operations
+
+        //GBK will have atleast 4 windows.
+        fireWithTrigger(Window.<KV<String, Integer>>into(FixedWindows.of(Duration.standardHours(4)))
+                        .triggering(
+                                Repeatedly.forever(
+                                        AfterPane.elementCountAtLeast(2)
+                                        //.orFinally(AfterPane.elementCountAtLeast(2)) i believe, these are outdated after repeatedly has been introduced.
+                                )
+                        )
+                        .discardingFiredPanes()
+                        .withTimestampCombiner(TimestampCombiner.LATEST) //this denotes to what happen to each timestamp after GBK, default is END_OF_WINDOW
+                        .withAllowedLateness(Duration.standardHours(2)) //late value{5} will be skipped, unless we set withAllowedLateness(Duration.standardHours(1))
+//                .accumulatingFiredPanes()
+                        .withOnTimeBehavior(Window.OnTimeBehavior.FIRE_ALWAYS)
+
+                ,builder.advanceWatermarkToInfinity(), true);
+
+    }
+
 
     @Test
     public void testFixedWindows_AfterProcessingTime() {
@@ -81,30 +139,106 @@ public class Windowing implements Serializable {
         fireWithTrigger(Window.<KV<String, Integer>>into(FixedWindows.of(Duration.standardDays(1)))
                 .triggering(
                         Repeatedly.forever(
-                                //first sees element at 0 hour, and WAIT to fire until 2 -> collects 0,1,2 events
+                                //first sees element at 0 hour, and WAIT to fire until 2 -> collects 0,1,2 events, 
+                                // (for it to work element has to be added before advancing processing time)
                                 //then fire for each that arrives
-                                AfterProcessingTime.pastFirstElementInPane().plusDelayOf(Duration.standardHours(2))
+                                //also make sure builder.advanceProcessingTime(Duration.standardHours(1)) 1 not i
+                                AfterProcessingTime.pastFirstElementInPane().plusDelayOf(Duration.standardHours(4))
+                                        //.alignedTo(Duration.standardMinutes(120), Instant.parse("2024-01-01T00:00:00"))
+//                                        .alignedTo(Duration.standardMinutes(2))
                         )
                 )
-                .withAllowedLateness(Duration.standardHours(0))
-                .accumulatingFiredPanes());
+                .withTimestampCombiner(TimestampCombiner.LATEST)
+                .withAllowedLateness(Duration.standardHours(2))
+//                .accumulatingFiredPanes()
+                        .discardingFiredPanes()
+
+                );
+    }
+
+    @Test
+    public void testFixedWindows_AfterProcessingTime_article_example() {
 
 
+        Instant startTime = Instant.parse("2024-01-01T00:00:00Z");
+        String KEY = "key1";
+
+        TestStream.Builder<KV<String, Integer>> builder = 
+                TestStream.create(KvCoder.of(StringUtf8Coder.of(), VarIntCoder.of()))
+                .advanceProcessingTime(Duration.standardMinutes(30))
+                .advanceWatermarkTo(startTime)
+                .addElements(TimestampedValue.of(KV.of(KEY, 1), startTime))
+                
+                
+                .advanceProcessingTime(Duration.standardHours(1))
+                .advanceWatermarkTo(startTime.plus(Duration.standardHours(1)))
+                .addElements(TimestampedValue.of(KV.of(KEY, 2), startTime.plus(Duration.standardHours(1))))
+                
+                .advanceProcessingTime(Duration.standardHours(1))
+                
+                .advanceProcessingTime(Duration.standardMinutes(30)) //3:00
+                        
+//                .advanceProcessingTime(Duration.standardMinutes(30)) //3.30       
+                .advanceWatermarkTo(startTime.plus(Duration.standardHours(3).plus(Duration.standardMinutes(00)))) //3.30
+                .addElements(TimestampedValue.of(KV.of(KEY, 3), startTime.plus(Duration.standardHours(3))))
+                
+                
+                .advanceProcessingTime(Duration.standardMinutes(30)) //4:00
+                .advanceWatermarkTo(startTime.plus(Duration.standardHours(4).plus(Duration.standardMinutes(30))))
+
+
+                .advanceProcessingTime(Duration.standardMinutes(35)) //4:30
+                .advanceWatermarkTo(startTime.plus(Duration.standardHours(4).plus(Duration.standardMinutes(30))))
+                .addElements(TimestampedValue.of(KV.of(KEY, 4), startTime.plus(Duration.standardHours(3).plus(Duration.standardMinutes(30)))))
+
+                .advanceProcessingTime(Duration.standardHours(1).plus(Duration.standardMinutes(5))) //5:30
+                .advanceWatermarkTo(startTime.plus(Duration.standardHours(5).plus(Duration.standardMinutes(30))))
+                .addElements(TimestampedValue.of(KV.of(KEY, 5), startTime.plus(Duration.standardHours(3).plus(Duration.standardMinutes(40)))))
+                        
+                        
+                        .advanceWatermarkTo(startTime.plus(Duration.standardHours(5).plus(Duration.standardMinutes(59))))
+
+                        .addElements(TimestampedValue.of(KV.of(KEY, 6), startTime.plus(Duration.standardHours(3).plus(Duration.standardMinutes(41)))))
+                .advanceProcessingTime(Duration.standardMinutes(5)) //5:30
+                .advanceWatermarkTo(startTime.plus(Duration.standardHours(6).plus(Duration.standardMinutes(40))))
+                
+
+
+
+
+
+                ;
+
+        
+        fireWithTrigger(Window.<KV<String, Integer>>into(FixedWindows.of(Duration.standardHours(4)))
+                        .triggering(
+                                Repeatedly.forever(
+                                        AfterProcessingTime.pastFirstElementInPane().plusDelayOf(Duration.standardHours(1))
+                                )
+                        )
+                        .withTimestampCombiner(TimestampCombiner.LATEST)
+                        .withAllowedLateness(Duration.standardHours(2))
+                        .discardingFiredPanes()
+
+        ,builder.advanceWatermarkToInfinity(), true);
     }
 
     @Test
     public void testFixedWindows_AfterWatermark() {
 
 
-        fireWithTrigger(Window.<KV<String, Integer>>into(FixedWindows.of(Duration.standardDays(1)))
+        fireWithTrigger(Window.<KV<String, Integer>>into(FixedWindows.of(Duration.standardDays(1))).withTimestampCombiner(TimestampCombiner.EARLIEST)
                 .triggering(
-                        Repeatedly.forever(
+                        
                                 AfterWatermark.pastEndOfWindow()
-                        )
-                )
-                .withAllowedLateness(Duration.standardHours(0))
-                .accumulatingFiredPanes());
+                                        .withEarlyFirings(AfterPane.elementCountAtLeast(10))
+                                        .withLateFirings(Never.ever())
 
+                        
+                )
+                .withAllowedLateness(Duration.standardHours(3))
+//                .accumulatingFiredPanes());
+                .discardingFiredPanes());
     }
 
 
@@ -196,21 +330,35 @@ public class Windowing implements Serializable {
 
         TestStream.Builder<KV<String, Integer>> builder = TestStream.create(KvCoder.of(StringUtf8Coder.of(), VarIntCoder.of()));
 
-        for(int i = 0; i < 5; i++){
+        for(int i = 0; i < 24; i++){
             if (i > 0)
-                builder = builder.advanceProcessingTime(Duration.standardHours(i))
+                builder = builder.advanceProcessingTime(Duration.standardHours(1))
                         .advanceWatermarkTo(startTime.plus(Duration.standardHours(i)));
 
-            builder = builder.addElements(TimestampedValue.of(KV.of(KEY, i), startTime.plus(Duration.standardHours(i))));
+            if ( true)
+                builder = builder.addElements(TimestampedValue.of(KV.of(KEY, i), startTime.plus(Duration.standardHours(i))));
         }
 
         //later firing
-        builder = builder.advanceProcessingTime(Duration.standardHours(24));
+        
+
         builder = builder.advanceWatermarkTo(startTime.plus(Duration.standardHours(24)));
-        builder = builder.addElements(TimestampedValue.of(KV.of(KEY, 5), startTime.plus(Duration.standardHours(23))));
+        builder = builder.advanceProcessingTime(Duration.standardHours(1).plus(Duration.standardMinutes(5)));
+        
+        builder = builder.addElements(TimestampedValue.of(KV.of(KEY, 5), startTime.plus(Duration.standardHours(5))));
 
+        builder = builder.advanceProcessingTime(Duration.standardHours(1).plus(Duration.standardMinutes(5)));
+        builder = builder.advanceWatermarkTo(startTime.plus(Duration.standardHours(25).plus(Duration.standardMinutes(60))));
+        builder = builder.addElements(TimestampedValue.of(KV.of(KEY, 5555), startTime.plus(Duration.standardHours(7))));        
 
-       return builder.advanceWatermarkToInfinity();
+//        //later firing
+//        builder = builder.advanceProcessingTime(Duration.standardHours(24));
+//        builder = builder.advanceWatermarkTo(startTime.plus(Duration.standardHours(24)));
+//        builder = builder.addElements(TimestampedValue.of(KV.of(KEY, 6), startTime.plus(Duration.standardHours(23).plus(100))));
+//        builder = builder.addElements(TimestampedValue.of(KV.of(KEY, 7), startTime.plus(Duration.standardHours(23).plus(200))));
+//        builder = builder.addElements(TimestampedValue.of(KV.of(KEY, 8), startTime.plus(Duration.standardHours(23).plus(300))));
+
+        return builder.advanceWatermarkToInfinity();
     }
 
 
